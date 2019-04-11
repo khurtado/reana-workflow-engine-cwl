@@ -20,14 +20,16 @@ import cwltool.main
 import pkg_resources
 from cwltool.context import LoadingContext
 
+from reana_commons.config import (REANA_LOG_FORMAT, REANA_LOG_LEVEL,
+                                  REANA_WORKFLOW_UMASK)
 from reana_workflow_engine_cwl.__init__ import __version__
-from reana_workflow_engine_cwl.config import SHARED_VOLUME_PATH
+from reana_workflow_engine_cwl.config import LOGGING_MODULE, SHARED_VOLUME_PATH
 from reana_workflow_engine_cwl.context import REANARuntimeContext
 from reana_workflow_engine_cwl.cwl_reana import ReanaPipeline
 from reana_workflow_engine_cwl.database import SQLiteHandler
 
-log = logging.getLogger("reana-workflow-engine-cwl")
-log.setLevel(logging.INFO)
+logging.basicConfig(level=REANA_LOG_LEVEL, format=REANA_LOG_FORMAT)
+log = logging.getLogger(LOGGING_MODULE)
 console = logging.StreamHandler()
 log.addHandler(console)
 
@@ -47,6 +49,7 @@ def main(workflow_uuid, workflow_spec, workflow_inputs,
     """Run main method."""
     working_dir = os.path.join(SHARED_VOLUME_PATH, working_dir)
     os.chdir(working_dir)
+    os.umask(REANA_WORKFLOW_UMASK)
     log.info("Dumping workflow specification and input parameter files...")
     with open("workflow.json", "w") as f:
         json.dump(workflow_spec, f)
@@ -73,8 +76,10 @@ def main(workflow_uuid, workflow_spec, workflow_inputs,
             }})
     tmpdir = os.path.join(working_dir, "cwl/tmpdir")
     tmp_outdir = os.path.join(working_dir, "cwl/outdir")
+    docker_stagedir = os.path.join(working_dir, "cwl/docker_stagedir")
     os.makedirs(tmpdir)
     os.makedirs(tmp_outdir)
+    os.makedirs(docker_stagedir)
     args = operational_options
     args = args + [
         "--debug",
