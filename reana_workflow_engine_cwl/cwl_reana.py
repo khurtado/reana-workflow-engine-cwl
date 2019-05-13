@@ -27,12 +27,13 @@ from cwltool.job import (JobBase, needs_shell_quoting_re,
 from cwltool.pathmapper import ensure_writable
 from cwltool.workflow import default_make_tool
 from reana_commons.api_client import JobControllerAPIClient as rjc_api_client
+from reana_commons.config import REANA_WORKFLOW_UMASK
 
-from reana_workflow_engine_cwl.config import MOUNT_CVMFS
+from reana_workflow_engine_cwl.config import LOGGING_MODULE, MOUNT_CVMFS
 from reana_workflow_engine_cwl.pipeline import Pipeline
 from reana_workflow_engine_cwl.poll import PollThread
 
-log = logging.getLogger("cwl-backend")
+log = logging.getLogger(LOGGING_MODULE)
 
 
 class ReanaPipeline(Pipeline):
@@ -132,7 +133,7 @@ class ReanaPipelineJob(JobBase):
             if vol.type == "WritableDirectory":
                 if vol.resolved.startswith("_:"):
                     if not os.path.exists(vol.target):
-                        os.makedirs(vol.target, mode=0o0755)
+                        os.makedirs(vol.target)
                 else:
                     if self.inplace_update:
                         pass
@@ -148,12 +149,13 @@ class ReanaPipelineJob(JobBase):
                     with os.fdopen(fd, "wb") as f:
                         f.write(vol.resolved.encode("utf-8"))
 
-    def create_task_msg(self, working_dir):
+    def create_task_msg(self, working_dir, workflow_uuid):
         """Create job message spec to be sent to REANA-Job-Controller."""
         job_name = self.name
         docker_req, _ = self.get_requirement("DockerRequirement")
         container = str(docker_req['dockerPull'])
-        requirements_command_line = ""
+        umask_cmd = "umask {};".format(REANA_WORKFLOW_UMASK)
+        requirements_command_line = umask_cmd
         for var in self.environment:
             requirements_command_line += "export {0}=\"{1}\";".format(
                 var, self.environment[var])
@@ -243,7 +245,8 @@ class ReanaPipelineJob(JobBase):
             "prettified_cmd": wrapped_cmd,
             "workflow_workspace": working_dir,
             "job_name": job_name,
-            "cvmfs_mounts": MOUNT_CVMFS
+            "cvmfs_mounts": MOUNT_CVMFS,
+            "workflow_uuid": workflow_uuid
         }
 
         return create_body
@@ -293,7 +296,8 @@ class ReanaPipelineJob(JobBase):
         )
         log.debug(pformat(self.__dict__))
 
-        task = self.create_task_msg(runtimeContext.working_dir)
+        task = self.create_task_msg(runtimeContext.working_dir,
+                                    runtimeContext.workflow_uuid)
 
         log.info(
             "[job %s] CREATED TASK MSG----------------------" %
