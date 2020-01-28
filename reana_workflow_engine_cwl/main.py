@@ -41,7 +41,7 @@ def versionstring():
         cwltool_ver = pkg[0].version
     else:
         cwltool_ver = "unknown"
-    return "%s %s with cwltool %s" % (sys.argv[0], __version__, cwltool_ver)
+    return f"{sys.argv[0]} {__version__} with cwltool {cwltool_ver}"
 
 
 def main(workflow_uuid, workflow_spec, workflow_inputs,
@@ -71,7 +71,7 @@ def main(workflow_uuid, workflow_spec, workflow_inputs,
             "progress": {
                 "total": total_jobs,
                 "running": running_jobs,
-                "finisned": finished_jobs,
+                "finished": finished_jobs,
                 "failed": failed_jobs
             }})
     tmpdir = os.path.join(working_dir, "cwl/tmpdir")
@@ -81,14 +81,20 @@ def main(workflow_uuid, workflow_spec, workflow_inputs,
     os.makedirs(tmp_outdir)
     os.makedirs(docker_stagedir)
     args = operational_options
-    args = args + [
-        "--debug",
+
+    log.setLevel(REANA_LOG_LEVEL)
+    if REANA_LOG_LEVEL == logging.DEBUG:
+        args += ["--debug"]
+    elif REANA_LOG_LEVEL == logging.ERROR:
+        args += ["--quiet"]
+
+    args += [
         "--tmpdir-prefix", tmpdir + "/",
         "--tmp-outdir-prefix", tmp_outdir + "/",
         "--default-container", "frolvlad/alpine-bash",
         "--outdir", working_dir + "/" + "outputs",
         "workflow.json#main", "inputs.json"]
-    log.error("parsing arguments ...")
+    log.info("parsing arguments ...")
     parser = cwltool.main.arg_parser()
     parsed_args = parser.parse_args(args)
 
@@ -108,7 +114,7 @@ def main(workflow_uuid, workflow_spec, workflow_inputs,
         log.setLevel(logging.DEBUG)
 
     pipeline = ReanaPipeline()
-    log.error("starting the run..")
+    log.info("starting the run..")
     db_log_writer = SQLiteHandler(workflow_uuid, publisher)
 
     f = StringIO()
@@ -127,6 +133,8 @@ def main(workflow_uuid, workflow_spec, workflow_inputs,
         logger_handler=db_log_writer,
         stdout=f, stderr=f
     )
-    publisher.publish_workflow_status(workflow_uuid, 2,
-                                      f.getvalue())
+
+    # Publish logs
+    publisher.publish_workflow_status(workflow_uuid, 2, f.getvalue())
+
     return result

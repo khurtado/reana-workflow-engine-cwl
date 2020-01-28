@@ -23,11 +23,44 @@ from reana_workflow_engine_cwl.config import LOGGING_MODULE
 
 log = logging.getLogger(LOGGING_MODULE)
 
+rcode_to_workflow_status_mapping = {0: 2, 1: 3}
+
 
 def load_json(ctx, param, value):
     """Load json from click option."""
     value = value[1:]
     return json.loads(base64.standard_b64decode(value).decode())
+
+
+def rcode_to_workflow_status(response_code):
+    """Map the cwl tool exit code to a workflow status."""
+    return rcode_to_workflow_status_mapping[response_code]
+
+
+def parse_str_to_int(workflow_parameters):
+    """Parse integers stored as strings to integers.
+
+    >>> parse_str_to_int({'sleeptime': "'2'"})
+    {'sleeptime': 2}
+    >>> parse_str_to_int({'sleeptime': '2'})
+    {'sleeptime': 2}
+    >>> parse_str_to_int({'sleeptime': 'two'})
+    {'sleeptime': 'two'}
+    >>> parse_str_to_int({'helloworld': {'class': 'File'}})
+    {'helloworld': {'class': 'File', 'location': 'code/helloworld.py'}}
+    """
+    for (key, val) in workflow_parameters.items():
+        try:
+            if isinstance(val, str) and val[0] == "'":
+                # The actual value of the int as str could be stored as:
+                # '\'val\'', since ' is an escape character.
+                workflow_parameters[key] = int(val[1:-1])
+            else:
+                workflow_parameters[key] = int(val)
+        except (ValueError, TypeError, KeyError):
+            # Skip values and types which cannot be casted to integer.
+            pass
+    return workflow_parameters
 
 
 @click.command()
@@ -53,21 +86,24 @@ def run_cwl_workflow(workflow_uuid, workflow_workspace,
                      workflow_parameters=None,
                      operational_options={}):
     """Run cwl workflow."""
-    log.info('running workflow on context: {0}'.format(locals()))
+    workflow_parameters = parse_str_to_int(workflow_parameters)
+    log.info(f'running workflow on context: {locals()}')
     try:
         check_connection_to_job_controller()
         publisher = WorkflowStatusPublisher()
-        main.main(workflow_uuid, workflow_json, workflow_parameters,
-                  operational_options, workflow_workspace, publisher)
+        rcode = main.main(workflow_uuid, workflow_json, workflow_parameters,
+                          operational_options, workflow_workspace, publisher)
         log.info('workflow done')
-        publisher.publish_workflow_status(workflow_uuid, 2)
+
+        publisher.publish_workflow_status(workflow_uuid,
+                                          rcode_to_workflow_status(rcode))
+
     except Exception as e:
-        log.error('workflow failed: {0}'.format(e))
+        log.error(f'workflow failed: {e}')
         publisher.publish_workflow_status(workflow_uuid, 3, message=str(e))
     finally:
         if publisher:
             publisher.close()
         else:
-            log.error('Workflow {workflow_uuid} failed but status '
-                      'could not be published.'.format(
-                          workflow_uuid=workflow_uuid))
+            log.error(f'Workflow {workflow_uuid} failed but status '
+                      'could not be published.')
